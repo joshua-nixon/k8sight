@@ -1359,7 +1359,9 @@ const NAMESPACED_RESOURCE_LOADERS = {
   serviceAccounts: { api: k8s.CoreV1Api, method: 'listNamespacedServiceAccount', allMethod: 'listServiceAccountForAllNamespaces', kind: 'ServiceAccount' },
   ingresses: { api: k8s.NetworkingV1Api, method: 'listNamespacedIngress', allMethod: 'listIngressForAllNamespaces', kind: 'Ingress' },
   networkPolicies: { api: k8s.NetworkingV1Api, method: 'listNamespacedNetworkPolicy', allMethod: 'listNetworkPolicyForAllNamespaces', kind: 'NetworkPolicy' },
-  persistentVolumeClaims: { api: k8s.CoreV1Api, method: 'listNamespacedPersistentVolumeClaim', allMethod: 'listPersistentVolumeClaimForAllNamespaces', kind: 'PersistentVolumeClaim' }
+  persistentVolumeClaims: { api: k8s.CoreV1Api, method: 'listNamespacedPersistentVolumeClaim', allMethod: 'listPersistentVolumeClaimForAllNamespaces', kind: 'PersistentVolumeClaim' },
+  gateways: { api: k8s.CustomObjectsApi, custom: true, group: 'gateway.networking.k8s.io', version: 'v1', plural: 'gateways', kind: 'Gateway' },
+  httpRoutes: { api: k8s.CustomObjectsApi, custom: true, group: 'gateway.networking.k8s.io', version: 'v1', plural: 'httproutes', kind: 'HTTPRoute' },
 };
 
 // Load one resource kind per request. In particular, Pods never wait for the
@@ -1383,11 +1385,35 @@ app.get('/api/resources/:namespace/:resourceType', async (req, res) => {
       const cached = getCache(cacheKey);
       if (cached) return cached;
       const api = kubeConfig.makeApiClient(loader.api);
-      const response = namespace === 'all' && resourceType === 'pods'
-        ? { items: await listClusterPodsInFlight(api) }
-        : namespace === 'all'
-          ? await api[loader.allMethod]()
-          : await api[loader.method]({ namespace });
+      let response;
+      if (loader.custom) {
+        try {
+          response = namespace === 'all'
+            ? await api.listCustomObjectForAllNamespaces({
+                group: loader.group,
+                version: loader.version,
+                resourcePlural: loader.plural
+              })
+            : await api.listNamespacedCustomObject({
+                group: loader.group,
+                version: loader.version,
+                namespace,
+                plural: loader.plural
+              });
+        } catch (error) {
+          if (error?.code === 404 || error?.statusCode === 404) {
+            response = { items: [] };
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        response = namespace === 'all' && resourceType === 'pods'
+          ? { items: await listClusterPodsInFlight(api) }
+          : namespace === 'all'
+            ? await api[loader.allMethod]()
+            : await api[loader.method]({ namespace });
+      }
       const data = { [resourceType]: (response.items || []).map(item => formatResource(item, loader.kind)) };
       setCache(cacheKey, data, CACHE_TTL.resources);
       return data;
@@ -1489,6 +1515,25 @@ app.get('/api/resource/:namespace/:kind/:name', async (req, res) => {
     if (!kubeConfig) return res.status(400).json({ error: 'No kubeconfig loaded' });
 
     const { namespace, kind, name } = req.params;
+
+    if (kind === 'Gateway' || kind === 'HTTPRoute') {
+      const customLoader = kind === 'Gateway'
+        ? NAMESPACED_RESOURCE_LOADERS.gateways
+        : NAMESPACED_RESOURCE_LOADERS.httpRoutes;
+      try {
+        const resource = await kubeConfig.makeApiClient(k8s.CustomObjectsApi)
+          .getNamespacedCustomObject({
+            group: customLoader.group,
+            version: customLoader.version,
+            namespace,
+            plural: customLoader.plural,
+            name
+          });
+        return res.json(resource);
+      } catch (apiError) {
+        return res.status(404).json({ error: `Resource not found: ${apiError.message}` });
+      }
+    }
 
     let resource;
     try {
@@ -1711,6 +1756,20 @@ app.get('/api/yaml/:namespace/:kind/:name', async (req, res) => {
     if (!kubeConfig) return res.status(400).json({ error: 'No kubeconfig loaded' });
 
     const { namespace, kind, name } = req.params;
+    if (kind === 'gateway' || kind === 'httpRoute') {
+      const customLoader = kind === 'gateway'
+        ? NAMESPACED_RESOURCE_LOADERS.gateways
+        : NAMESPACED_RESOURCE_LOADERS.httpRoutes;
+      const resource = await kubeConfig.makeApiClient(k8s.CustomObjectsApi)
+        .getNamespacedCustomObject({
+          group: customLoader.group,
+          version: customLoader.version,
+          namespace,
+          plural: customLoader.plural,
+          name
+        });
+      return res.json({ yaml: yaml.dump(resource, { indent: 2 }) });
+    }
 
     let resource;
     try {
@@ -1853,7 +1912,12 @@ app.delete('/api/resource/:namespace/:kind/:name', async (req, res) => {
   try {
     if (!kubeConfig) return res.status(400).json({ error: 'No kubeconfig loaded' });
     const { namespace, kind, name } = req.params;
-    const k = kind.toLowerCase();
+    const customLoader = kind === 'Gateway' || kind === 'gateway'
+      ? NAMESPACED_RESOURCE_LOADERS.gateways
+      : kind === 'HTTPRoute' || kind === 'httpRoute'
+        ? NAMESPACED_RESOURCE_LOADERS.httpRoutes
+        : null;
+    const k = customLoader?.plural || kind.toLowerCase();
     const out = await runKubectl(['delete', k, name, ...nsArgs(k, namespace)]);
     cache.clear();
     res.json({ success: true, message: out || `${name} deleted` });
@@ -2433,6 +2497,42 @@ app.get('/api/customresources', async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Gateway API — discovered from CRDs so the nested Network section stays hidden
+// on clusters that do not have gateway.networking.k8s.io installed.
+app.get('/api/gateway/status', async (req, res) => {
+  try {
+    if (!kubeConfig) return res.json({ installed: false, kinds: {} });
+    const cacheKey = getCacheKey('gateway-status', {});
+    const cached = getCache(cacheKey);
+    if (cached) {
+      res.set('X-Cache', 'HIT');
+      return res.json(cached);
+    }
+
+    const kinds = {};
+    try {
+      const api = kubeConfig.makeApiClient(k8s.ApiextensionsV1Api);
+      const { items } = await api.listCustomResourceDefinition();
+      const names = new Set(items.map((crd) => crd.metadata?.name));
+      kinds.gatewayClass = names.has('gatewayclasses.gateway.networking.k8s.io');
+      kinds.gateway = names.has('gateways.gateway.networking.k8s.io');
+      kinds.httpRoute = names.has('httproutes.gateway.networking.k8s.io');
+    } catch {
+      // Missing CRD permissions should behave like an undiscovered integration.
+    }
+
+    const result = {
+      installed: !!(kinds.gatewayClass || kinds.gateway || kinds.httpRoute),
+      kinds
+    };
+    setCache(cacheKey, result, CACHE_TTL.namespaces);
+    res.set('X-Cache', 'MISS');
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message, installed: false, kinds: {} });
   }
 });
 
@@ -5327,6 +5427,16 @@ function formatResource(item, kind) {
     out.ingressClass = item.spec?.ingressClassName || '-';
     out.hosts = (item.spec?.rules || []).map(r => r.host).filter(Boolean).join(', ') || '-';
   }
+  if (resolvedKind === 'Gateway') {
+    out.gatewayClass = item.spec?.gatewayClassName || '-';
+    out.listeners = (item.spec?.listeners || []).length;
+    out.addresses = (item.spec?.addresses || []).map(a => a.value).filter(Boolean).join(', ') || '-';
+  }
+  if (resolvedKind === 'HTTPRoute') {
+    out.hostnames = (item.spec?.hostnames || []).join(', ') || '-';
+    out.parents = (item.spec?.parentRefs || []).map(ref => ref.name).filter(Boolean).join(', ') || '-';
+    out.rules = (item.spec?.rules || []).length;
+  }
   if (resolvedKind === 'PersistentVolumeClaim') {
     out.capacity = item.status?.capacity?.storage || item.spec?.resources?.requests?.storage || '-';
     out.storageClass = item.spec?.storageClassName || '-';
@@ -5374,6 +5484,20 @@ function getResourceStatus(item, kind) {
   }
   if (kind === 'PersistentVolume' || kind === 'PersistentVolumeClaim') {
     return status.phase || 'Unknown';
+  }
+  if (kind === 'Gateway') {
+    const condition = (status.conditions || []).find(c => c.type === 'Programmed');
+    if (condition?.reason) return condition.reason;
+    return condition?.status === 'True' ? 'Programmed' : 'Unknown';
+  }
+  if (kind === 'HTTPRoute') {
+    const conditions = (status.parents || []).flatMap(parent => parent.conditions || []);
+    const accepted = conditions.find(c => c.type === 'Accepted');
+    if (accepted?.reason) return accepted.reason;
+    if (accepted?.status === 'True') return 'Accepted';
+    const resolved = conditions.find(c => c.type === 'ResolvedRefs');
+    if (resolved?.status === 'False') return 'ResolvedRefs';
+    return 'Unknown';
   }
   if (kind === 'StorageClass') {
     return '';

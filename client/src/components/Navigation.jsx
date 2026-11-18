@@ -22,6 +22,7 @@ export default function Navigation({
   flaggerInstalled,
   flaggerView,
   onSelectFlaggerView,
+  gatewayApiKinds = {},
   securityView,
   onSelectSecurityView,
   costsView,
@@ -63,6 +64,11 @@ export default function Navigation({
     { key: 'service', label: 'Services', icon: 'service' },
     { key: 'ingress', label: 'Ingress', icon: 'ingress' },
     { key: 'networkPolicy', label: 'Network Policies', icon: 'networkPolicy' }
+  ];
+  
+  const gatewayApiTypes = [
+    ...(gatewayApiKinds.gateway ? [{ key: 'gateway', label: 'Gateways', icon: 'gateway' }] : []),
+    ...(gatewayApiKinds.httpRoute ? [{ key: 'httpRoute', label: 'HTTP Routes', icon: 'httpRoute' }] : [])
   ];
 
   const storageTypes = [
@@ -237,7 +243,34 @@ export default function Navigation({
         <div className="nav-group-label">Workloads</div>
         {renderSection('workloads', 'Workloads', workloadTypes)}
         {renderSection('config', 'Config', configTypes)}
-        {renderSection('network', 'Network', networkTypes)}
+        <div className="nav-section">
+          <div className="nav-section-title" onClick={() => onToggleNav('network')}>
+            <span className={`nav-section-chevron ${navExpanded.network ? 'open' : ''}`}>
+              <Icon name="chevronRight" size={13} strokeWidth={2.2} />
+            </span>
+            Network
+          </div>
+          {navExpanded.network && (
+            <div className="nav-items">
+              {networkTypes.map(renderTreeItem)}
+              {gatewayApiTypes.length > 0 && (
+                <div className="nav-subsection">
+                  <div className="nav-section-title nested" onClick={() => onToggleNav('gatewayApi')}>
+                    <span className={`nav-section-chevron ${navExpanded.gatewayApi ? 'open' : ''}`}>
+                      <Icon name="chevronRight" size={13} strokeWidth={2.2} />
+                    </span>
+                    Gateway API
+                  </div>
+                  {navExpanded.gatewayApi && (
+                    <div className="nav-items">
+                      {gatewayApiTypes.map(renderTreeItem)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         {renderSection('storage', 'Storage', storageTypes)}
 
         <div className="nav-group-label">Cluster</div>

@@ -42,7 +42,19 @@ const NAV_GROUPS = [
   ] },
 ];
 
-export default function CommandPalette({ open, onClose, onNavigate, contexts = [], currentContext, onSwitchContext, onOpenPreferences, onRefresh, onSetTheme, prodMark }) {
+export default function CommandPalette({ 
+  open,
+  onClose, 
+  onNavigate, 
+  contexts = [], 
+  currentContext, 
+  onSwitchContext, 
+  onOpenPreferences, 
+  onRefresh, 
+  onSetTheme, 
+  prodMark, 
+  gatewayApiKinds = {} 
+}) {
   const [query, setQuery] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
@@ -51,7 +63,18 @@ export default function CommandPalette({ open, onClose, onNavigate, contexts = [
   // Build the full command set (nav destinations + contexts + actions).
   const commands = useMemo(() => {
     const cmds = [];
-    for (const g of NAV_GROUPS) for (const it of g.items) cmds.push({ id: `nav:${it.key}`, group: g.group, label: it.label, icon: it.icon, run: () => onNavigate(it.key) });
+    
+    for (const g of NAV_GROUPS) {
+      for (const it of g.items) {
+        cmds.push({ id: `nav:${it.key}`, group: g.group, label: it.label, icon: it.icon, run: () => onNavigate(it.key) });
+      }
+    }
+    if (gatewayApiKinds.gateway) {
+      cmds.push({ id: 'nav:gateway', group: 'Gateway API', label: 'Gateways', icon: 'gateway', run: () => onNavigate('gateway') });
+    }
+    if (gatewayApiKinds.httpRoute) {
+      cmds.push({ id: 'nav:httpRoute', group: 'Gateway API', label: 'HTTP Routes', icon: 'httpRoute', run: () => onNavigate('httpRoute') });
+    }
     for (const ctx of contexts) cmds.push({ id: `ctx:${ctx}`, group: 'Switch context', label: ctx, icon: 'cluster', hint: ctx === currentContext ? 'current' : '', run: () => onSwitchContext(ctx) });
     cmds.push(
       { id: 'act:refresh', group: 'Actions', label: 'Refresh', icon: 'refresh', run: () => onRefresh?.() },
@@ -71,7 +94,7 @@ export default function CommandPalette({ open, onClose, onNavigate, contexts = [
       });
     }
     return cmds;
-  }, [contexts, currentContext, onNavigate, onSwitchContext, onOpenPreferences, onRefresh, onSetTheme, prodMark]);
+  }, [contexts, currentContext, onNavigate, onSwitchContext, onOpenPreferences, onRefresh, onSetTheme, prodMark, gatewayApiKinds]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

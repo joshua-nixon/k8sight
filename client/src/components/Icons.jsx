@@ -92,6 +92,21 @@ const ICONS = {
       <path d="M10 17l5-5-5-5M15 12H3" />
     </>
   ),
+  gateway: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 8h10M7 12h10M7 16h4" />
+      <circle cx="16" cy="16" r="1.5" />
+    </>
+  ),
+  httpRoute: (
+    <>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <circle cx="19" cy="18" r="2" />
+      <path d="M7 12h4a4 4 0 0 0 4-4V6h2M11 12h4a4 4 0 0 1 4 4v2" />
+    </>
+  ),
   networkPolicy: (
     <>
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />

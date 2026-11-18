@@ -61,7 +61,9 @@ const RESOURCE_LABELS = {
   networkPolicy: { label: 'Network Policies', icon: 'networkPolicy' },
   persistentVolume: { label: 'Persistent Volumes', icon: 'persistentVolume' },
   persistentVolumeClaim: { label: 'Persistent Volume Claims', icon: 'persistentVolumeClaim' },
-  storageClass: { label: 'Storage Classes', icon: 'storageClass' }
+  storageClass: { label: 'Storage Classes', icon: 'storageClass' },
+  gateway: { label: 'Gateways', icon: 'gateway' },
+  httpRoute: { label: 'HTTP Routes', icon: 'httpRoute' },
 };
 
 // Types shown as tabs at the top of the workloads viewer (Config/Network/etc.
@@ -321,6 +323,8 @@ export default function ResourceViewer({
     if (resourceType === 'serviceAccount') return ['Name', 'Namespace', 'Secrets', 'Age'];
     if (resourceType === 'ingress') return ['Name', 'Namespace', 'Class', 'Hosts', 'Age'];
     if (resourceType === 'networkPolicy') return ['Name', 'Namespace', 'Policy Types', 'Age'];
+    if (resourceType === 'gateway') return ['Name', 'Namespace', 'Gateway Class', 'Listeners', 'Addresses', 'Age', 'Status'];
+    if (resourceType === 'httpRoute') return ['Name', 'Namespace', 'Hostnames', 'Parents', 'Rules', 'Age', 'Status'];
     if (resourceType === 'persistentVolumeClaim') return ['Name', 'Namespace', 'Status', 'Capacity', 'Storage Class', 'Volume', 'Age'];
     if (resourceType === 'persistentVolume') return ['Name', 'Capacity', 'Access Modes', 'Reclaim Policy', 'Status', 'Storage Class', 'Claim', 'Age'];
     if (resourceType === 'storageClass') return ['Name', 'Provisioner', 'Reclaim Policy', 'Binding Mode', 'Age'];
@@ -355,6 +359,12 @@ export default function ResourceViewer({
       case 'Class': return r.ingressClass || '';
       case 'Hosts': return r.hosts || '';
       case 'Policy Types': return r.policyTypes || '';
+      case 'Gateway Class': return r.gatewayClass || '';
+      case 'Listeners': return Number(r.listeners) || 0;
+      case 'Addresses': return r.addresses || '';
+      case 'Hostnames': return r.hostnames || '';
+      case 'Parents': return r.parents || '';
+      case 'Rules': return Number(r.rules) || 0;
       case 'Access Modes': return r.accessModes || '';
       case 'Reclaim Policy': return r.reclaimPolicy || '';
       case 'Storage Class': return r.storageClass || '';
@@ -466,6 +476,18 @@ export default function ResourceViewer({
         return resource.hosts || '-';
       case 'Policy Types':
         return resource.policyTypes || '-';
+      case 'Gateway Class':
+        return <span className="drawer-chip">{resource.gatewayClass || '-'}</span>;
+      case 'Listeners':
+        return resource.listeners != null ? resource.listeners : '0';
+      case 'Addresses':
+        return resource.addresses || '-';
+      case 'Hostnames':
+        return resource.hostnames || '-';
+      case 'Parents':
+        return resource.parents || '-';
+      case 'Rules':
+        return resource.rules != null ? resource.rules : '0';
       case 'Capacity':
         return <span style={{ fontFamily: 'var(--mono)' }}>{resource.capacity || '-'}</span>;
       case 'Access Modes':

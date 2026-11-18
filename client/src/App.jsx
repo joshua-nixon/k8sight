@@ -38,7 +38,13 @@ const STANDALONE_RESOURCE_TYPES = ['cluster', 'nodes', 'namespaces', 'helm', 'cu
 
 // Maps a resourceType to the key it lives under in allResources.
 // Naive `type + 's'` breaks for a few types.
-const PLURAL_KEY = { ingress: 'ingresses', networkPolicy: 'networkPolicies', storageClass: 'storageClasses' };
+const PLURAL_KEY = {
+  ingress: 'ingresses',
+  networkPolicy: 'networkPolicies',
+  storageClass: 'storageClasses',
+  gateway: 'gateways',
+  httpRoute: 'httpRoutes'
+};
 const pluralKey = (rt) => PLURAL_KEY[rt] || `${rt}s`;
 
 // Cluster-scoped types come from a single /api/storage call (not per-namespace)
@@ -93,6 +99,8 @@ function App() {
   const [argocdInstalled, setArgocdInstalled] = useState(false);
   const [fluxInstalled, setFluxInstalled] = useState(false);
   const [flaggerInstalled, setFlaggerInstalled] = useState(false);
+  const [gatewayApiKinds, setGatewayApiKinds] = useState({});
+
   const handleRefreshRef = useRef(() => {});
   const refreshInFlight = useRef(false);
   const visitedViewsRef = useRef(new Set());
@@ -117,6 +125,7 @@ function App() {
   const [navExpanded, setNavExpanded] = useState({
     workloads: true,
     network: false,
+    gatewayApi: false,
     storage: false,
     config: false,
     argocd: false,
@@ -174,13 +183,20 @@ function App() {
     if (authOk) fetchNamespaces();
   }, [authOk]);
 
-  // Detect optional integrations (Argo CD, Flux CD, Flagger) on the active cluster.
+  // Detect optional integrations (Argo CD, Flux CD, Flagger, Gateway API) on the active cluster.
   useEffect(() => {
-    if (!authOk) { setArgocdInstalled(false); setFluxInstalled(false); setFlaggerInstalled(false); return; }
+    if (!authOk) {
+      setArgocdInstalled(false);
+      setFluxInstalled(false);
+      setFlaggerInstalled(false);
+      setGatewayApiKinds({});
+      return;
+    }
     let live = true;
     setArgocdInstalled(false);
     setFluxInstalled(false);
     setFlaggerInstalled(false);
+    setGatewayApiKinds({});
     axios.get('/api/argocd/status')
       .then(({ data }) => { if (live) setArgocdInstalled(!!data.installed); })
       .catch(() => { if (live) setArgocdInstalled(false); });
@@ -190,6 +206,9 @@ function App() {
     axios.get('/api/flagger/status')
       .then(({ data }) => { if (live) setFlaggerInstalled(!!data.installed); })
       .catch(() => { if (live) setFlaggerInstalled(false); });
+    axios.get('/api/gateway/status')
+      .then(({ data }) => { if (live) setGatewayApiKinds(data.installed ? (data.kinds || {}) : {}); })
+      .catch(() => { if (live) setGatewayApiKinds({}); });
     return () => { live = false; };
   }, [authOk, configStatus.currentContext]);
 
@@ -840,6 +859,7 @@ function App() {
             flaggerInstalled={flaggerInstalled}
             flaggerView={resourceType === 'flagger' ? flaggerView : null}
             onSelectFlaggerView={(v) => { setFlaggerView(v); setResourceType('flagger'); }}
+            gatewayApiKinds={gatewayApiKinds}
             securityView={resourceType === 'security' ? securityView : null}
             onSelectSecurityView={(v) => { setSecurityView(v); setResourceType('security'); }}
             costsView={resourceType === 'costs' ? costsView : null}
@@ -891,6 +911,7 @@ function App() {
           onRefresh={handleRefresh}
           onSetTheme={setTheme}
           prodMark={prodMark}
+          gatewayApiKinds={gatewayApiKinds}
         />
       )}
     </div>
